@@ -155,12 +155,13 @@ function viewAuth() {
       <button class="tab ${login ? '' : 'on'}" data-act="auth-mode" data-v="signup">حساب جديد</button>
     </div>
     <form data-form="auth" autocomplete="on">
-      <label for="u">اسم المستخدم</label>
-      <input id="u" name="u" type="text" dir="ltr" autocomplete="username" required minlength="3" maxlength="30" autocapitalize="none">
+      ${login ? '' : '<label for="n">الاسم الكامل</label><input id="n" name="n" type="text" maxlength="60" required autocomplete="name">'}
+      <label for="u">معرّف التلغرام</label>
+      <input id="u" name="u" type="text" dir="ltr" autocomplete="username" required maxlength="80" autocapitalize="none" placeholder="username أو @username أو t.me/username">
+      ${login ? '' : '<p class="hint">معرّف التلغرام هو اسم المستخدم لتسجيل الدخول، وبيشوفه الطلاب والمجموعات للتواصل معك.</p>'}
       <label for="p">كلمة السر</label>
       <input id="p" name="p" type="password" autocomplete="${login ? 'current-password' : 'new-password'}" required minlength="6" maxlength="72">
-      ${login ? '' : '<label for="t">معرّف التلغرام</label><input id="t" name="t" type="text" dir="ltr" maxlength="80" required autocapitalize="none" placeholder="username أو @username أو t.me/username">'}
-      ${login ? '' : '<p class="hint">اسم المستخدم: أحرف إنجليزية صغيرة وأرقام و _ و . (3 إلى 30). كلمة السر 6 محارف على الأقل.</p>'}
+      ${login ? '' : '<p class="hint">كلمة السر 6 محارف على الأقل.</p>'}
       <button class="btn-primary btn-block" type="submit">${login ? 'دخول' : 'إنشاء الحساب'}</button>
     </form></div>`;
 }
@@ -350,8 +351,8 @@ function viewAdmin() {
   const a = S.admin;
   const del = (kind, id, extra = '') => `<button class="btn-danger btn-sm" data-act="admin-del" data-kind="${kind}" data-id="${id}" ${extra}>حذف</button>`;
   return `<h2 class="section-title">الحسابات (${a.students.length})</h2>` +
-    a.students.map((s) => `<div class="card item"><div class="body"><strong>${esc(s.username)}</strong> ${s.is_admin ? '<span class="status st-warn">أدمن</span>' : ''}
-      <div class="muted">${esc(s.full_name || '—')} · ${s.telegram ? tgLink(s.telegram) : '—'} · ${s.role === 'owner' ? 'صاحب مجموعة' : s.role === 'seeker' ? 'فردي' : 'بدون اختيار'}</div></div>
+    a.students.map((s) => `<div class="card item"><div class="body"><strong>${esc(s.full_name || s.username)}</strong> ${s.is_admin ? '<span class="status st-warn">أدمن</span>' : ''}
+      <div class="muted">${s.telegram ? tgLink(s.telegram) : esc(s.username)} · ${s.role === 'owner' ? 'صاحب مجموعة' : s.role === 'seeker' ? 'فردي' : 'بدون اختيار'}</div></div>
       ${s.id === S.me.id ? '' : `<div class="btns">${del('student', s.id)}</div>`}</div>`).join('') +
     `<h2 class="section-title">المجموعات (${a.groups.length})</h2>` +
     (a.groups.map((g) => `<div class="card item"><div class="body"><strong>${esc(g.name)}</strong>
@@ -432,7 +433,7 @@ document.addEventListener('submit', (e) => {
   if (f === 'auth') {
     const fd = new FormData(e.target);
     run(async () => {
-      const r = await rpc(S.authMode, { p_username: fd.get('u'), p_password: fd.get('p'), ...(S.authMode === 'signup' ? { p_telegram: fd.get('t') } : {}) }, false);
+      const r = await rpc(S.authMode, { p_username: fd.get('u'), p_password: fd.get('p'), ...(S.authMode === 'signup' ? { p_full_name: fd.get('n') } : {}) }, false);
       S.token = r.token; store.set('sh_token', r.token);
       await loadMe(); render();
     });

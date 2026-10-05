@@ -29,6 +29,9 @@ create table if not exists public.students (
   created_at    timestamptz not null default now()
 );
 
+alter table public.students drop constraint if exists students_username_check;
+alter table public.students add constraint students_username_check check (username = lower(username) and username ~ '^[a-z0-9_.]{3,32}$');
+
 create table if not exists public.sessions (
   token_hash text primary key,
   student_id bigint not null references public.students(id) on delete cascade,
@@ -194,23 +197,21 @@ language sql stable security definer set search_path = public, extensions as $$
   from public.groups g where g.id = p_group_id;
 $$;
 
-create function public.signup(p_username text, p_password text, p_telegram text)
+create function public.signup(p_username text, p_password text, p_full_name text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare u text := lower(btrim(coalesce(p_username, ''))); s public.students; tok text; tg text;
+declare tg text; nm text; s public.students; tok text;
 begin
-  tg := private.norm_telegram(p_telegram);
-  if u !~ '^[a-z0-9_.]{3,30}$' then
-    raise exception 'اسم المستخدم لازم يكون 3 إلى 30 محرف: أحرف إنجليزية صغيرة وأرقام و _ و .';
-  end if;
+  tg := private.norm_telegram(p_username);
+  nm := private.clean_name(p_full_name);
   if char_length(coalesce(p_password, '')) < 6 or char_length(p_password) > 72 then
     raise exception 'كلمة السر لازم تكون 6 محارف على الأقل';
   end if;
   begin
-    insert into public.students (username, password_hash, telegram)
-    values (u, crypt(p_password, gen_salt('bf')), tg) returning * into s;
+    insert into public.students (username, password_hash, telegram, full_name)
+    values (lower(tg), crypt(p_password, gen_salt('bf')), tg, nm) returning * into s;
   exception when unique_violation then
-    raise exception 'اسم المستخدم محجوز، جرّب غيره';
+    raise exception 'هالمعرّف مسجّل من قبل، سجّل دخول أو تأكد من المعرّف';
   end;
   tok := encode(gen_random_bytes(32), 'hex');
   insert into public.sessions (token_hash, student_id, expires_at)
@@ -223,7 +224,7 @@ returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare s public.students; tok text;
 begin
-  select * into s from public.students where username = lower(btrim(coalesce(p_username, '')));
+  select * into s from public.students where username = lower(regexp_replace(btrim(coalesce(p_username, '')), '^@', ''));
   if not found or s.password_hash <> crypt(coalesce(p_password, ''), s.password_hash) then
     raise exception 'اسم المستخدم أو كلمة السر غلط';
   end if;
