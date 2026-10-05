@@ -147,6 +147,7 @@ function viewAuth() {
       <input id="u" name="u" type="text" dir="ltr" autocomplete="username" required minlength="3" maxlength="30" autocapitalize="none">
       <label for="p">كلمة السر</label>
       <input id="p" name="p" type="password" autocomplete="${login ? 'current-password' : 'new-password'}" required minlength="6" maxlength="72">
+      ${login ? '' : '<label for="t">معرّف التلغرام</label><input id="t" name="t" type="text" dir="ltr" maxlength="80" required autocapitalize="none" placeholder="username أو @username أو t.me/username">'}
       ${login ? '' : '<p class="hint">اسم المستخدم: أحرف إنجليزية صغيرة وأرقام و _ و . (3 إلى 30). كلمة السر 6 محارف على الأقل.</p>'}
       <button class="btn-primary btn-block" type="submit">${login ? 'دخول' : 'إنشاء الحساب'}</button>
     </form></div>`;
@@ -169,6 +170,11 @@ function chipsHtml(opts, selected, ns) {
     <div class="add-row"><input type="text" maxlength="30" placeholder="أضف يدوياً" data-addinput="${esc(ns)}"><button type="button" class="btn-sm" data-act="add-chip" data-ns="${esc(ns)}">إضافة</button></div>`;
 }
 
+function tgField(bind, val) {
+  if (S.me.telegram) return '';
+  return `<label>معرّف التلغرام</label><input type="text" dir="ltr" maxlength="80" data-bind="${bind}" value="${esc(val)}" placeholder="username أو @username أو t.me/username" required>`;
+}
+
 function viewSeekerForm() {
   const d = S.draft;
   const techOpts = [...new Set(d.fields.flatMap((f) => CATALOG[f] || []))];
@@ -176,7 +182,7 @@ function viewSeekerForm() {
     <form data-form="seeker">
       ${S.me.role === 'owner' ? '<p class="hint" style="color:var(--bad)">تنبيه: حفظ هالملف بيحذف مجموعتك وطلباتها.</p>' : ''}
       <label>الاسم الكامل</label><input type="text" maxlength="60" data-bind="full_name" value="${esc(d.full_name)}" required>
-      <label>معرّف التلغرام</label><input type="text" dir="ltr" maxlength="80" data-bind="telegram" value="${esc(d.telegram)}" placeholder="username أو @username أو t.me/username" required>
+      ${tgField('telegram', d.telegram)}
       <label>مجالي (واحد أو أكتر)</label>${chipsHtml(Object.keys(CATALOG), d.fields, 'fields')}
       <label>تقنياتي</label>${techOpts.length ? '' : '<p class="hint">اختار مجال لتظهرلك تقنيات مقترحة، أو أضفها يدوياً.</p>'}${chipsHtml(techOpts, d.techs, 'techs')}
       <button class="btn-primary btn-block" type="submit">حفظ</button>
@@ -207,7 +213,7 @@ function viewGroupForm() {
       <label>فكرة المشروع / وصف قصير (اختياري)</label><textarea maxlength="300" data-bind="description">${esc(d.description)}</textarea>
       <div class="grid2">
         <div><label>الاسم الكامل لصاحب المجموعة</label><input type="text" maxlength="60" data-bind="owner_name" value="${esc(d.owner_name)}" required></div>
-        <div><label>معرّف التلغرام</label><input type="text" dir="ltr" maxlength="80" data-bind="owner_telegram" value="${esc(d.owner_telegram)}" placeholder="username أو @username أو t.me/username" required></div>
+        ${S.me.telegram ? '' : `<div>${tgField('owner_telegram', d.owner_telegram)}</div>`}
         <div><label>عدد الأعضاء الحاليين</label><input type="number" min="1" max="30" data-bind="members" value="${esc(d.members)}" required></div>
         <div><label>كم شخص تحتاج؟ (1 إلى 6)</label><input type="number" min="1" max="6" data-count value="${d.slots.length}" required></div>
       </div>
@@ -354,9 +360,9 @@ function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''
 
 function groupDraft() {
   const g = S.me.group;
-  if (!g) return { kind: 'group', name: '', description: '', owner_name: S.me.full_name || '', owner_telegram: S.me.telegram || '', members: 1, slots: [newSlot()] };
+  if (!g) return { kind: 'group', name: '', description: '', owner_name: S.me.full_name || '', owner_telegram: '', members: 1, slots: [newSlot()] };
   return {
-    kind: 'group', name: g.name, description: g.description, owner_name: g.owner_name, owner_telegram: g.owner_telegram, members: g.members_count,
+    kind: 'group', name: g.name, description: g.description, owner_name: g.owner_name, owner_telegram: '', members: g.members_count,
     slots: g.slots.map((s) => (CATALOG[s.field]
       ? { field: s.field, other: false, otherText: '', techs: [...s.techs] }
       : { field: '', other: true, otherText: s.field, techs: [...s.techs] })),
@@ -364,7 +370,7 @@ function groupDraft() {
 }
 const newSlot = () => ({ field: '', other: false, otherText: '', techs: [] });
 function seekerDraft() {
-  return { kind: 'seeker', full_name: S.me.full_name || '', telegram: S.me.telegram || '', fields: [...(S.me.fields || [])], techs: [...(S.me.techs || [])] };
+  return { kind: 'seeker', full_name: S.me.full_name || '', telegram: '', fields: [...(S.me.fields || [])], techs: [...(S.me.techs || [])] };
 }
 
 document.addEventListener('input', (e) => {
@@ -414,7 +420,7 @@ document.addEventListener('submit', (e) => {
   if (f === 'auth') {
     const fd = new FormData(e.target);
     run(async () => {
-      const r = await rpc(S.authMode, { p_username: fd.get('u'), p_password: fd.get('p') }, false);
+      const r = await rpc(S.authMode, { p_username: fd.get('u'), p_password: fd.get('p'), ...(S.authMode === 'signup' ? { p_telegram: fd.get('t') } : {}) }, false);
       S.token = r.token; store.set('sh_token', r.token);
       await loadMe(); render();
     });

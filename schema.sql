@@ -114,6 +114,19 @@ begin
   return t;
 end $$;
 
+create function private.resolve_tg(p_current text, p_new text)
+returns text
+language plpgsql immutable set search_path = public, extensions as $$
+begin
+  if btrim(coalesce(p_new, '')) <> '' then
+    return private.norm_telegram(p_new);
+  end if;
+  if p_current is null then
+    raise exception 'ضيف معرّف التلغرام';
+  end if;
+  return p_current;
+end $$;
+
 create function private.clean_list(p text[], p_max int, p_len int, p_what text)
 returns text[]
 language plpgsql immutable set search_path = public, extensions as $$
@@ -171,11 +184,12 @@ language sql stable security definer set search_path = public, extensions as $$
   from public.groups g where g.id = p_group_id;
 $$;
 
-create function public.signup(p_username text, p_password text)
+create function public.signup(p_username text, p_password text, p_telegram text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare u text := lower(btrim(coalesce(p_username, ''))); s public.students; tok text;
+declare u text := lower(btrim(coalesce(p_username, ''))); s public.students; tok text; tg text;
 begin
+  tg := private.norm_telegram(p_telegram);
   if u !~ '^[a-z0-9_.]{3,30}$' then
     raise exception 'اسم المستخدم لازم يكون 3 إلى 30 محرف: أحرف إنجليزية صغيرة وأرقام و _ و .';
   end if;
@@ -183,8 +197,8 @@ begin
     raise exception 'كلمة السر لازم تكون 6 محارف على الأقل';
   end if;
   begin
-    insert into public.students (username, password_hash)
-    values (u, crypt(p_password, gen_salt('bf'))) returning * into s;
+    insert into public.students (username, password_hash, telegram)
+    values (u, crypt(p_password, gen_salt('bf')), tg) returning * into s;
   exception when unique_violation then
     raise exception 'اسم المستخدم محجوز، جرّب غيره';
   end;
@@ -238,7 +252,7 @@ declare s public.students; nm text; tg text; f text[];
 begin
   s := private.auth(p_token);
   nm := private.clean_name(p_full_name);
-  tg := private.norm_telegram(p_telegram);
+  tg := private.resolve_tg(s.telegram, p_telegram);
   f  := private.clean_list(p_fields, 5, 40, 'المجالات');
   if coalesce(array_length(f, 1), 0) = 0 then
     raise exception 'اختار مجال واحد على الأقل';
@@ -269,7 +283,7 @@ begin
     raise exception 'الوصف أطول من 300 محرف';
   end if;
   nm := private.clean_name(p_owner_name);
-  tg := private.norm_telegram(p_owner_telegram);
+  tg := private.resolve_tg(s.telegram, p_owner_telegram);
   if p_members_count is null or p_members_count < 1 or p_members_count > 30 then
     raise exception 'عدد الأعضاء الحاليين لازم يكون بين 1 و30';
   end if;
@@ -565,7 +579,7 @@ end $$;
 
 grant usage on schema public to anon;
 grant execute on function
-  public.signup(text, text),
+  public.signup(text, text, text),
   public.login(text, text),
   public.logout(text),
   public.me(text),
