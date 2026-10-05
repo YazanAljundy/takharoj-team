@@ -1,0 +1,22 @@
+# شريك التخرج
+
+موقع بسيط لطلاب هندسة البرمجيات ليلاقوا مجموعات لمشاريع التخرج. HTML + CSS + JS عادي، وSupabase (Postgres) كقاعدة بيانات فقط.
+
+## خطوات التشغيل
+1. أنشئ مشروع Supabase جديد.
+2. افتح **SQL Editor** والصق محتوى `schema.sql` كامل وشغّله مرة وحدة.
+3. من **Project Settings → API** انسخ الـ Project URL والـ anon (أو publishable) key وحطهم بأول سطرين بـ `app.js`:
+   ```js
+   const SUPABASE_URL = 'https://xxxx.supabase.co';
+   const SUPABASE_KEY = '...';
+   ```
+4. افتح `index.html` بالمتصفح (أو ارفع المجلد على أي استضافة ثابتة).
+5. أنشئ حساب من الموقع، ثم رقّيه لأدمن من SQL Editor:
+   ```sql
+   update public.students set is_admin = true where username = 'your_username';
+   ```
+
+## ملاحظات
+- ما في Supabase Auth: الدخول username + password (bcrypt)، والتوكن (7 أيام) بينحفظ بالقاعدة كـ sha256 فقط.
+- كل الجداول عليها RLS بدون policies؛ كل شي بيمر عبر دوال `security definer` بتتحقق من التوكن.
+- حدود معروفة: ما في rate limit على محاولات تسجيل الدخول، وما في استرجاع كلمة سر.

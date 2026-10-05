@@ -32,7 +32,7 @@ const S = {
   view: 'auth',
   authMode: 'login',
   tab: 'groups',
-  groups: [], incoming: [], mine: [], count: 0,
+  groups: [], seekers: [], sq: '', sfield: '', incoming: [], mine: [], count: 0,
   admin: { students: [], groups: [], requests: [] },
   f: { q: '', field: '', tech: '', open: false },
   draft: null,
@@ -104,6 +104,7 @@ async function loadCount() {
 
 async function loadTab() {
   if (S.tab === 'groups') S.groups = await rpc('list_groups');
+  else if (S.tab === 'seekers') S.seekers = await rpc('list_seekers');
   else if (S.tab === 'requests') {
     if (S.me.role === 'owner') S.incoming = await rpc('incoming_requests');
     else S.mine = await rpc('my_requests');
@@ -218,12 +219,13 @@ function viewGroupForm() {
 }
 
 function viewMain() {
-  const tabs = [['groups', 'المجموعات'], ['requests', 'الطلبات']];
+  const tabs = [['groups', 'المجموعات'], ['seekers', 'طلاب بدون مجموعة'], ['requests', 'الطلبات']];
   if (S.me.is_admin) tabs.push(['admin', 'الإدارة']);
   const t = tabs.map(([k, l]) =>
     `<button class="tab ${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${l}${k === 'requests' && S.count ? `<span class="badge-count">${S.count}</span>` : ''}</button>`).join('');
   let body = '';
   if (S.tab === 'groups') body = viewGroups();
+  else if (S.tab === 'seekers') body = viewSeekers();
   else if (S.tab === 'requests') body = S.me.role === 'owner' ? viewIncoming() : viewMine();
   else body = viewAdmin();
   return `<div class="tabs">${t}</div>${body}`;
@@ -280,6 +282,26 @@ function groupCard(g) {
 }
 
 function techTags(a) { return (a || []).map((t) => `<span class="tag">${esc(t)}</span>`).join(' '); }
+
+function seekersList() {
+  const q = S.sq.trim().toLowerCase();
+  const list = S.seekers.filter((u) => (!S.sfield || u.fields.includes(S.sfield)) &&
+    (!q || [u.full_name, ...u.fields, ...u.techs].join(' ').toLowerCase().includes(q)));
+  if (!list.length) return '<div class="empty">ما في طلاب مطابقين.</div>';
+  return `<div class="cards">${list.map((u) => `<div class="card gcard">
+    <h3>${esc(u.full_name)}</h3>
+    <div>المجال: ${techTags(u.fields) || '—'}</div>
+    <div>التقنيات: ${techTags(u.techs) || '—'}</div>
+    <div class="owner-line">تواصل: ${tgLink(u.telegram)}</div></div>`).join('')}</div>`;
+}
+
+function viewSeekers() {
+  const fields = [...new Set([...Object.keys(CATALOG), ...S.seekers.flatMap((u) => u.fields)])];
+  return `<div class="filters" style="grid-template-columns:2fr 1fr">
+    <input type="text" id="s-q" placeholder="ابحث بالاسم أو المجال أو التقنية..." value="${esc(S.sq)}">
+    <select id="s-field"><option value="">كل المجالات</option>${fields.map((f) => `<option ${S.sfield === f ? 'selected' : ''} value="${esc(f)}">${esc(f)}</option>`).join('')}</select>
+  </div><div id="slist">${seekersList()}</div>`;
+}
 
 function viewIncoming() {
   if (!S.me.group) return '<div class="empty">ما عندك مجموعة.</div>';
@@ -348,6 +370,7 @@ function seekerDraft() {
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (t.dataset.bind && S.draft) setPath(S.draft, t.dataset.bind, t.value);
+  else if (t.id === 's-q') { S.sq = t.value; $('#slist').innerHTML = seekersList(); }
   else if (t.id === 'f-q') { S.f.q = t.value; $('#glist').innerHTML = groupsList(); }
 });
 
@@ -364,7 +387,8 @@ document.addEventListener('change', (e) => {
     while (S.draft.slots.length < n) S.draft.slots.push(newSlot());
     S.draft.slots.length = n;
     render();
-  } else if (t.id === 'f-field') { S.f.field = t.value; $('#glist').innerHTML = groupsList(); }
+  } else if (t.id === 's-field') { S.sfield = t.value; $('#slist').innerHTML = seekersList(); }
+  else if (t.id === 'f-field') { S.f.field = t.value; $('#glist').innerHTML = groupsList(); }
   else if (t.id === 'f-tech') { S.f.tech = t.value; $('#glist').innerHTML = groupsList(); }
   else if (t.id === 'f-open') { S.f.open = t.checked; $('#glist').innerHTML = groupsList(); }
 });
