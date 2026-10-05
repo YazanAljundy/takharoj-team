@@ -47,6 +47,18 @@ function toast(msg, ok) {
   setTimeout(() => el.remove(), 4500);
 }
 
+function errorText(status, data) {
+  const msg = (data && data.message) || '';
+  if (/[؀-ۿ]/.test(msg)) return msg;
+  const code = (data && data.code) || '';
+  if (code === 'PGRST202' || status === 404) return 'هالعملية مو موجودة بقاعدة البيانات. تأكد إنك شغّلت آخر نسخة من ملفات SQL على Supabase';
+  if (status === 401 || status === 403 || /api key|jwt/i.test(msg)) return 'مفتاح Supabase أو رابط المشروع غلط. تأكد من SUPABASE_URL و SUPABASE_KEY بأول app.js';
+  if (status === 429) return 'طلبات كتير بوقت قصير، استنى شوي وجرّب';
+  if (status >= 500) return 'في مشكلة بالسيرفر، جرّب كمان شوي';
+  if (status === 400) return 'البيانات اللي دخلتها مو مظبوطة، راجعها وجرّب';
+  return 'صار خطأ غير متوقع، جرّب كمان مرة';
+}
+
 async function rpc(name, args = {}, auth = true) {
   if (SUPABASE_URL.includes('YOUR-PROJECT')) throw new Error('حط SUPABASE_URL و SUPABASE_KEY بأول app.js');
   const body = auth ? { p_token: S.token, ...args } : args;
@@ -62,7 +74,7 @@ async function rpc(name, args = {}, auth = true) {
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch {}
   if (!res.ok) {
-    const msg = (data && data.message) || 'صار خطأ غير متوقع';
+    const msg = errorText(res.status, data);
     if (auth && /انتهت الجلسة|لازم تسجّل دخول/.test(msg)) { dropSession(); render(); }
     throw new Error(msg);
   }

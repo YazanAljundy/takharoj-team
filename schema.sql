@@ -3,7 +3,20 @@ create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
 create schema if not exists private;
 
-create table public.students (
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+      from pg_proc p
+     where p.pronamespace in ('public'::regnamespace, 'private'::regnamespace)
+       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+  loop
+    execute 'drop function ' || r.sig || ' cascade';
+  end loop;
+end $$;
+
+create table if not exists public.students (
   id            bigint generated always as identity primary key,
   username      text not null unique check (username = lower(username) and username ~ '^[a-z0-9_.]{3,30}$'),
   password_hash text not null,
@@ -16,15 +29,15 @@ create table public.students (
   created_at    timestamptz not null default now()
 );
 
-create table public.sessions (
+create table if not exists public.sessions (
   token_hash text primary key,
   student_id bigint not null references public.students(id) on delete cascade,
   expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
-create index on public.sessions (student_id);
+create index if not exists sessions_student_id_idx on public.sessions (student_id);
 
-create table public.groups (
+create table if not exists public.groups (
   id             bigint generated always as identity primary key,
   owner_id       bigint not null unique references public.students(id) on delete cascade,
   name           text not null check (char_length(name) between 2 and 60),
@@ -35,7 +48,7 @@ create table public.groups (
   created_at     timestamptz not null default now()
 );
 
-create table public.group_slots (
+create table if not exists public.group_slots (
   id        bigint generated always as identity primary key,
   group_id  bigint not null references public.groups(id) on delete cascade,
   pos       int    not null,
@@ -45,7 +58,7 @@ create table public.group_slots (
   unique (group_id, pos)
 );
 
-create table public.requests (
+create table if not exists public.requests (
   id         bigint generated always as identity primary key,
   student_id bigint not null references public.students(id) on delete cascade,
   group_id   bigint not null references public.groups(id) on delete cascade,
@@ -55,8 +68,8 @@ create table public.requests (
   created_at timestamptz not null default now(),
   unique (student_id, group_id)
 );
-create index on public.requests (group_id, status);
-create index on public.requests (slot_id);
+create index if not exists requests_group_status_idx on public.requests (group_id, status);
+create index if not exists requests_slot_id_idx on public.requests (slot_id);
 
 alter table public.students    enable row level security;
 alter table public.sessions    enable row level security;
@@ -66,9 +79,6 @@ alter table public.requests    enable row level security;
 
 revoke all on all tables    in schema public from public, anon, authenticated;
 revoke all on all sequences in schema public from public, anon, authenticated;
-revoke all on all functions in schema public from public, anon, authenticated;
-revoke all on schema private from public, anon, authenticated;
-revoke all on all functions in schema private from public, anon, authenticated;
 
 create function private.auth(p_token text)
 returns public.students
@@ -136,14 +146,14 @@ begin
     v := btrim(regexp_replace(coalesce(x, ''), '\s+', ' ', 'g'));
     if v = '' then continue; end if;
     if char_length(v) > p_len then
-      raise exception '% طويلة كتير (الحد % محرف)', p_what, p_len;
+      raise exception 'أحد عناصر % أطول من % محرف: %', p_what, p_len, left(v, 20);
     end if;
     if not exists (select 1 from unnest(r) u where lower(u) = lower(v)) then
       r := r || v;
     end if;
   end loop;
   if coalesce(array_length(r, 1), 0) > p_max then
-    raise exception 'كتير % (الحد الأقصى %)', p_what, p_max;
+    raise exception 'عدد % أكتر من المسموح (الحد الأقصى %)', p_what, p_max;
   end if;
   return r;
 end $$;
@@ -154,7 +164,7 @@ language plpgsql immutable set search_path = public, extensions as $$
 declare v text := btrim(regexp_replace(coalesce(p, ''), '\s+', ' ', 'g'));
 begin
   if char_length(v) < 2 or char_length(v) > 60 then
-    raise exception 'الاسم الكامل لازم يكون بين 2 و60 محرف';
+    raise exception 'الاسم الكامل لازم يكون بين 2 و60 محرف (كتبت % محرف)', char_length(v);
   end if;
   return v;
 end $$;
@@ -276,11 +286,11 @@ begin
   s := private.auth(p_token);
   gn := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
   if char_length(gn) < 2 or char_length(gn) > 60 then
-    raise exception 'اسم المجموعة لازم يكون بين 2 و60 محرف';
+    raise exception 'اسم المجموعة لازم يكون بين 2 و60 محرف (كتبت % محرف)', char_length(gn);
   end if;
   ds := btrim(coalesce(p_description, ''));
   if char_length(ds) > 300 then
-    raise exception 'الوصف أطول من 300 محرف';
+    raise exception 'الوصف أطول من 300 محرف (كتبت % محرف)', char_length(ds);
   end if;
   nm := private.clean_name(p_owner_name);
   tg := private.resolve_tg(s.telegram, p_owner_telegram);
@@ -288,7 +298,7 @@ begin
     raise exception 'عدد الأعضاء الحاليين لازم يكون بين 1 و30';
   end if;
   if p_slots is null or jsonb_typeof(p_slots) <> 'array' then
-    raise exception 'حدد الأشخاص المطلوبين';
+    raise exception 'حدد الأشخاص اللي بدك ياهن (من 1 إلى 6)';
   end if;
   n := jsonb_array_length(p_slots);
   if n < 1 or n > 6 then
@@ -299,8 +309,11 @@ begin
     el := p_slots -> i;
     if jsonb_typeof(el) <> 'object' then raise exception 'بيانات الخانة مو صحيحة'; end if;
     fld := btrim(regexp_replace(coalesce(el ->> 'field', ''), '\s+', ' ', 'g'));
-    if fld = '' or char_length(fld) > 40 then
-      raise exception 'حدد مجال لكل خانة (حتى 40 محرف)';
+    if fld = '' then
+      raise exception 'حدد مجال للشخص رقم %', i + 1;
+    end if;
+    if char_length(fld) > 40 then
+      raise exception 'مجال الشخص رقم % أطول من 40 محرف', i + 1;
     end if;
     select coalesce(array_agg(x), '{}') into tch
       from jsonb_array_elements_text(coalesce(el -> 'techs', '[]'::jsonb)) x;
@@ -381,7 +394,7 @@ declare s public.students; sl public.group_slots; g public.groups; m text := btr
 begin
   s := private.auth(p_token);
   if s.role is distinct from 'seeker' then
-    raise exception 'بس الطالب اللي عم يدوّر على مجموعة بيقدر يطلب انضمام';
+    raise exception 'طلب الانضمام للطلاب اللي عم يدوّروا على مجموعة بس. غيّر ملفك من "تعديل ملفي" لتقدر تقدّم';
   end if;
   if char_length(m) > 300 then raise exception 'الرسالة أطول من 300 محرف'; end if;
   select * into sl from public.group_slots where id = p_slot_id;
@@ -576,6 +589,12 @@ begin
   delete from public.requests where id = p_id;
   if not found then raise exception 'الطلب مو موجود'; end if;
 end $$;
+
+revoke all on all tables    in schema public from public, anon, authenticated;
+revoke all on all sequences in schema public from public, anon, authenticated;
+revoke all on all functions in schema public from public, anon, authenticated;
+revoke all on schema private from public, anon, authenticated;
+revoke all on all functions in schema private from public, anon, authenticated;
 
 grant usage on schema public to anon;
 grant execute on function

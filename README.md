@@ -4,7 +4,7 @@
 
 ## خطوات التشغيل
 1. أنشئ مشروع Supabase جديد.
-2. افتح **SQL Editor** والصق محتوى `schema.sql` كامل وشغّله مرة وحدة.
+2. افتح **SQL Editor** والصق محتوى `schema.sql` كامل وشغّله. تقدر تعيد تشغيله بأي وقت لتحديث الدوال: بيحذف الدوال القديمة وبيثبّت الجديدة بدون ما يمس البيانات.
 3. من **Project Settings → API** انسخ الـ Project URL والـ anon (أو publishable) key وحطهم بأول سطرين بـ `app.js`:
    ```js
    const SUPABASE_URL = 'https://xxxx.supabase.co';
