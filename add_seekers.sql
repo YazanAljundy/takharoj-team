@@ -1,4 +1,4 @@
-create function public.list_seekers(p_token text)
+create or replace function public.list_seekers(p_token text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
@@ -8,7 +8,7 @@ begin
       'id', id, 'full_name', full_name, 'telegram', telegram,
       'fields', to_jsonb(fields), 'techs', to_jsonb(techs)) order by id desc)
     from public.students
-    where role = 'seeker' and full_name is not null and telegram is not null
+    where role = 'seeker' and not is_admin and full_name is not null and telegram is not null
   ), '[]'::jsonb);
 end $$;
 

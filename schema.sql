@@ -484,7 +484,7 @@ begin
       'id', id, 'full_name', full_name, 'telegram', telegram,
       'fields', to_jsonb(fields), 'techs', to_jsonb(techs)) order by id desc)
     from public.students
-    where role = 'seeker' and full_name is not null and telegram is not null
+    where role = 'seeker' and not is_admin and full_name is not null and telegram is not null
   ), '[]'::jsonb);
 end $$;
 
