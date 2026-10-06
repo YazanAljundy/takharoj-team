@@ -76,6 +76,9 @@ async function rpc(name, args = {}, auth = true) {
   if (!res.ok) {
     const msg = errorText(res.status, data);
     if (auth && /انتهت الجلسة|لازم تسجّل دخول/.test(msg)) { dropSession(); render(); }
+    else if (data && data.hint === 'TG_CHANGE' && S.me && S.view !== 'tg') {
+      S.me.must_change_telegram = true; S.view = 'tg'; closeModal(); render();
+    }
     throw new Error(msg);
   }
   return data;
@@ -106,6 +109,7 @@ async function boot() {
 
 async function loadMe() {
   S.me = await rpc('me');
+  if (S.me.must_change_telegram) { S.view = 'tg'; return; }
   S.view = S.me.role ? 'main' : 'role';
   if (S.view === 'main') { S.tab = 'groups'; await loadTab(); }
 }
@@ -132,7 +136,8 @@ function render() {
   if (S.view === 'auth') app.innerHTML = viewAuth();
   else {
     let body = '';
-    if (S.view === 'role') body = viewRole();
+    if (S.view === 'tg') body = viewTgChange();
+    else if (S.view === 'role') body = viewRole();
     else if (S.view === 'form') body = S.draft.kind === 'group' ? viewGroupForm() : viewSeekerForm();
     else body = viewMain();
     app.innerHTML = header() + body;
@@ -184,8 +189,21 @@ function chipsHtml(opts, selected, ns) {
 }
 
 function tgField(bind, val) {
-  if (S.me.telegram) return '';
-  return `<label>معرّف التلغرام</label><input type="text" dir="ltr" maxlength="80" data-bind="${bind}" value="${esc(val)}" placeholder="username أو @username أو t.me/username" required>`;
+  return `<label>معرّف التلغرام</label><input type="text" dir="ltr" maxlength="80" data-bind="${bind}" value="${esc(val)}" placeholder="username أو @username أو t.me/username" required autocapitalize="none">
+    <p class="hint">هو وسيلة التواصل معك واسم الدخول كمان. إذا غيّرته، بتسجّل دخول بالمعرّف الجديد.</p>`;
+}
+
+function viewTgChange() {
+  const cur = S.me.telegram ? `المعرّف الحالي: <span dir="ltr">@${esc(S.me.telegram)}</span>` : '';
+  return `<div class="card narrow"><h2>لازم تغيّر معرّف التلغرام</h2>
+    <p>معرّف التلغرام هو وسيلة التواصل الوحيدة بينك وبين الطلاب والمجموعات، والمعرّف المسجّل عندك مو صحيح أو ما عم يوصّل لحسابك.</p>
+    <p class="muted">${cur}</p>
+    <form data-form="tg">
+      <label for="tg">معرّف التلغرام الصحيح</label>
+      <input id="tg" name="tg" type="text" dir="ltr" maxlength="80" required autocapitalize="none" placeholder="username أو @username أو t.me/username">
+      <p class="hint">بتلاقيه بتلغرام: الإعدادات ← اسم المستخدم. وبيصير هو اسم الدخول للموقع.</p>
+      <button class="btn-primary btn-block" type="submit">حفظ ومتابعة</button>
+    </form></div>`;
 }
 
 function viewSeekerForm() {
@@ -226,7 +244,7 @@ function viewGroupForm() {
       <label>فكرة المشروع / وصف قصير (اختياري)</label><textarea maxlength="300" data-bind="description">${esc(d.description)}</textarea>
       <div class="grid2">
         <div><label>الاسم الكامل لصاحب المجموعة</label><input type="text" maxlength="60" data-bind="owner_name" value="${esc(d.owner_name)}" required></div>
-        ${S.me.telegram ? '' : `<div>${tgField('owner_telegram', d.owner_telegram)}</div>`}
+        <div>${tgField('owner_telegram', d.owner_telegram)}</div>
         <div><label>عدد الأعضاء الحاليين</label><input type="number" min="1" max="30" data-bind="members" value="${esc(d.members)}" required></div>
         <div><label>كم شخص تحتاج؟ (1 إلى 6)</label><input type="number" min="1" max="6" data-count value="${d.slots.length}" required></div>
       </div>
@@ -351,9 +369,11 @@ function viewAdmin() {
   const a = S.admin;
   const del = (kind, id, extra = '') => `<button class="btn-danger btn-sm" data-act="admin-del" data-kind="${kind}" data-id="${id}" ${extra}>حذف</button>`;
   return `<h2 class="section-title">الحسابات (${a.students.length})</h2>` +
-    a.students.map((s) => `<div class="card item"><div class="body"><strong>${esc(s.full_name || s.username)}</strong> ${s.is_admin ? '<span class="status st-warn">أدمن</span>' : ''}
+    a.students.map((s) => `<div class="card item"><div class="body"><strong>${esc(s.full_name || s.username)}</strong> ${s.is_admin ? '<span class="status st-warn">أدمن</span>' : ''} ${s.must_change_telegram ? '<span class="status st-bad">مطلوب تغيير التلغرام</span>' : ''}
       <div class="muted">${s.telegram ? tgLink(s.telegram) : esc(s.username)} · ${s.role === 'owner' ? 'صاحب مجموعة' : s.role === 'seeker' ? 'فردي' : 'بدون اختيار'}</div></div>
-      ${s.id === S.me.id ? '' : `<div class="btns">${del('student', s.id)}</div>`}</div>`).join('') +
+      <div class="btns"><button class="btn-sm" data-act="admin-edit" data-id="${s.id}">تعديل</button>
+        ${s.is_admin ? '' : `<button class="btn-sm" data-act="admin-tg" data-id="${s.id}" data-v="${s.must_change_telegram ? '0' : '1'}">${s.must_change_telegram ? 'إلغاء التنبيه' : 'نبّهه يغيّر التلغرام'}</button>`}
+        ${s.id === S.me.id ? '' : del('student', s.id)}</div></div>`).join('') +
     `<h2 class="section-title">المجموعات (${a.groups.length})</h2>` +
     (a.groups.map((g) => `<div class="card item"><div class="body"><strong>${esc(g.name)}</strong>
       <div class="muted">${esc(g.owner_name)} · ${tgLink(g.owner_telegram)} · الخانات: ${esc(g.slots_filled)}/${esc(g.slots_total)}</div></div>
@@ -373,9 +393,9 @@ function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''
 
 function groupDraft() {
   const g = S.me.group;
-  if (!g) return { kind: 'group', name: '', description: '', owner_name: S.me.full_name || '', owner_telegram: '', members: 1, slots: [newSlot()] };
+  if (!g) return { kind: 'group', name: '', description: '', owner_name: S.me.full_name || '', owner_telegram: S.me.telegram || '', members: 1, slots: [newSlot()] };
   return {
-    kind: 'group', name: g.name, description: g.description, owner_name: g.owner_name, owner_telegram: '', members: g.members_count,
+    kind: 'group', name: g.name, description: g.description, owner_name: g.owner_name, owner_telegram: S.me.telegram || '', members: g.members_count,
     slots: g.slots.map((s) => (CATALOG[s.field]
       ? { field: s.field, other: false, otherText: '', techs: [...s.techs] }
       : { field: '', other: true, otherText: s.field, techs: [...s.techs] })),
@@ -383,7 +403,7 @@ function groupDraft() {
 }
 const newSlot = () => ({ field: '', other: false, otherText: '', techs: [] });
 function seekerDraft() {
-  return { kind: 'seeker', full_name: S.me.full_name || '', telegram: '', fields: [...(S.me.fields || [])], techs: [...(S.me.techs || [])] };
+  return { kind: 'seeker', full_name: S.me.full_name || '', telegram: S.me.telegram || '', fields: [...(S.me.fields || [])], techs: [...(S.me.techs || [])] };
 }
 
 document.addEventListener('input', (e) => {
@@ -439,7 +459,23 @@ document.addEventListener('submit', (e) => {
     });
   } else if (f === 'seeker') run(saveSeeker);
   else if (f === 'group') run(saveGroup);
-  else if (f === 'join') {
+  else if (f === 'tg') {
+    const tg = new FormData(e.target).get('tg');
+    run(async () => {
+      await rpc('change_my_telegram', { p_telegram: tg });
+      toast('انحفظ المعرّف الجديد', true);
+      await loadMe(); render();
+    });
+  } else if (f === 'admin-edit') {
+    const fd = new FormData(e.target);
+    const id = +e.target.dataset.id;
+    run(async () => {
+      await rpc('admin_update_student', { p_id: id, p_full_name: fd.get('n'), p_telegram: fd.get('t'), p_new_password: fd.get('p') || '' });
+      closeModal(); toast('انحفظ التعديل', true);
+      if (id === S.me.id) S.me = await rpc('me');
+      await loadTab(); render();
+    });
+  } else if (f === 'join') {
     const msg = new FormData(e.target).get('m');
     const slot = +e.target.dataset.slot;
     run(async () => {
@@ -517,6 +553,27 @@ document.addEventListener('click', (e) => {
   if (act === 'cancel') {
     if (!confirm('بدك تلغي الطلب؟')) return;
     return run(async () => { await rpc('cancel_request', { p_request_id: +el.dataset.id }); await loadTab(); render(); });
+  }
+  if (act === 'admin-edit') {
+    const s = S.admin.students.find((x) => x.id === +el.dataset.id);
+    if (!s) return;
+    return openModal(`<h3>تعديل حساب</h3>
+      <form data-form="admin-edit" data-id="${s.id}" autocomplete="off">
+        <label>الاسم الكامل</label><input name="n" type="text" maxlength="60" required value="${esc(s.full_name || '')}">
+        <label>معرّف التلغرام (هو اسم الدخول)</label><input name="t" type="text" dir="ltr" maxlength="80" required autocapitalize="none" value="${esc(s.telegram || s.username)}">
+        <label>كلمة سر جديدة</label><input name="p" type="text" dir="ltr" minlength="6" maxlength="72" autocomplete="off" placeholder="اتركها فاضية إذا ما بدك تغيّرها">
+        <p class="hint">تغيير كلمة السر بيطلّع صاحب الحساب من كل أجهزته.</p>
+        <div class="row" style="margin-top:12px"><button class="btn-primary" type="submit">حفظ</button><button type="button" data-act="close">إلغاء</button></div>
+      </form>`);
+  }
+  if (act === 'admin-tg') {
+    const on = v === '1';
+    if (on && !confirm('هالطالب ما رح يقدر يستخدم الموقع لحد ما يغيّر معرّف التلغرام. بدك تكمّل؟')) return;
+    return run(async () => {
+      await rpc('admin_require_telegram_change', { p_id: +el.dataset.id, p_on: on });
+      toast(on ? 'انحط التنبيه' : 'انشال التنبيه', true);
+      await loadTab(); render();
+    });
   }
   if (act === 'admin-del') {
     const kind = el.dataset.kind;
